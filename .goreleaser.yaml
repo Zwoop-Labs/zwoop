@@ -21,7 +21,6 @@ builds:
 
 dockers_v2:
   - images:
-      - "{{ .Env.DOCKERHUB_USERNAME }}/zwoop"
       - "ghcr.io/zwoop-labs/zwoop"
     tags:
       - "{{ .Version }}"

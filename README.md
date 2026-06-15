@@ -18,7 +18,7 @@ The Go server handles only session pairing and WebRTC signaling. File data never
 ## Self-hosting
 
 ```sh
-docker run -p 8080:8080 ghcr.io/zwoop-labs/zwoop
+docker run -p 8080:8080 ghcr.io/zwoop-labs/zwoop:latest
 ```
 
 Optional environment variables:
