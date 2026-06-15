@@ -1,6 +1,6 @@
 # Zwoop
 
-Browser-only P2P file transfer. No accounts, no file size limits, no data stored on any server.
+Browser-only P2P file transfer. No accounts, no data stored on any server. No practical file size limit — transfers are streamed directly between browsers via WebRTC (4 GB limit applies in private browsing windows).
 
 Share a code or scan a QR — files go directly between browsers via WebRTC.
 
