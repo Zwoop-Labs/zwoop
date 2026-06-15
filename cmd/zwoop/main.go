@@ -14,13 +14,15 @@ import (
 	"github.com/Zwoop-Labs/zwoop/internal/session"
 )
 
+var version = "dev"
+
 func run(ctx context.Context, cfg *config.Config) error {
 	store := session.NewStore()
 	defer store.Close()
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           server.New(store, cfg),
+		Handler:           server.New(store, cfg, version),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 	}

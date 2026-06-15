@@ -170,6 +170,14 @@ func iceServersHandler(_ *config.Config) http.HandlerFunc {
 	}
 }
 
+func versionHandler(version string) http.HandlerFunc {
+	body, _ := json.Marshal(map[string]string{"version": version})
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}
+}
+
 func healthHandler(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})

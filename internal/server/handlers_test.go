@@ -20,7 +20,7 @@ func newTestServer(t *testing.T, cfg *config.Config) *httptest.Server {
 	t.Helper()
 	store := session.NewStore()
 	t.Cleanup(store.Close)
-	return httptest.NewServer(newWithLimiter(store, cfg, newIPLimiter(false, sessionRateLimitMax, rateLimitWindow)))
+	return httptest.NewServer(newWithLimiter(store, cfg, "test", newIPLimiter(false, sessionRateLimitMax, rateLimitWindow)))
 }
 
 type fakeClock struct{ t time.Time }
@@ -32,7 +32,7 @@ func newTestServerWithLimiter(t *testing.T, cfg *config.Config, sessionLimiter *
 	t.Helper()
 	store := session.NewStore()
 	t.Cleanup(store.Close)
-	return httptest.NewServer(newWithLimiter(store, cfg, sessionLimiter))
+	return httptest.NewServer(newWithLimiter(store, cfg, "test", sessionLimiter))
 }
 
 func defaultCfg() *config.Config {
@@ -283,7 +283,7 @@ func TestExtractIP(t *testing.T) {
 func TestNew(t *testing.T) {
 	store := session.NewStore()
 	t.Cleanup(store.Close)
-	srv := httptest.NewServer(New(store, defaultCfg()))
+	srv := httptest.NewServer(New(store, defaultCfg(), "test"))
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/healthz")

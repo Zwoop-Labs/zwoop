@@ -21,11 +21,11 @@ func cspMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func New(store *session.Store, cfg *config.Config) http.Handler {
-	return newWithLimiter(store, cfg, newIPLimiter(cfg.TrustedProxy, sessionRateLimitMax, rateLimitWindow))
+func New(store *session.Store, cfg *config.Config, version string) http.Handler {
+	return newWithLimiter(store, cfg, version, newIPLimiter(cfg.TrustedProxy, sessionRateLimitMax, rateLimitWindow))
 }
 
-func newWithLimiter(store *session.Store, cfg *config.Config, sessionLimiter *ipLimiter) http.Handler {
+func newWithLimiter(store *session.Store, cfg *config.Config, version string, sessionLimiter *ipLimiter) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
@@ -36,6 +36,7 @@ func newWithLimiter(store *session.Store, cfg *config.Config, sessionLimiter *ip
 	r.Route("/api", func(r chi.Router) {
 		r.With(rateLimitMiddleware(sessionLimiter)).Post("/session", sessionHandler(store))
 		r.Get("/ice-servers", iceServersHandler(cfg))
+		r.Get("/version", versionHandler(version))
 	})
 	r.Get("/ws/{code}", wsHandler(store, cfg))
 
