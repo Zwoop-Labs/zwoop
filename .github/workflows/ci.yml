@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - name: Install just
+        uses: extractions/setup-just@v2
+
+      - name: Build frontend
+        run: cd web && npm ci && npm run build
+
+      - name: Install Go dependencies
+        run: go mod download
+
+      - name: Build
+        run: go build -v ./...
+
+      - name: Format
+        run: just fmt
+
+      - name: Test
+        run: just test

@@ -1,0 +1,43 @@
+name: Auto Tag
+
+on:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - name: Install svu
+        run: go install github.com/caarlos0/svu/v3@latest
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Tag new version if needed
+        run: |
+          CURRENT=$(svu current)
+          NEXT=$(svu next)
+          if [ "$NEXT" = "$CURRENT" ]; then
+            echo "No version bump needed (current: $CURRENT)"
+          else
+            git tag "$NEXT"
+            git push origin "$NEXT"
+            echo "Tagged $NEXT"
+          fi
