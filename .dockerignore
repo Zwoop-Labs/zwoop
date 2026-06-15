@@ -1,0 +1,9 @@
+# flyctl launch added from .gitignore
+zwoop
+.idea
+coverage.out
+coverage.html
+**/web/node_modules
+**/web/dist
+**/e2e/node_modules
+fly.toml

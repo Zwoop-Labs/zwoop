@@ -1,0 +1,7 @@
+FROM alpine:3.21
+RUN apk add --no-cache ca-certificates \
+ && addgroup -S zwoop && adduser -S -G zwoop zwoop
+COPY zwoop /zwoop
+USER zwoop
+EXPOSE 8080
+ENTRYPOINT ["/zwoop"]

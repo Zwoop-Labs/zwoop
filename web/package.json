@@ -1,0 +1,23 @@
+{
+  "name": "zwoop-web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./tsconfig.json"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^5.0.4",
+    "@types/qrcode": "^1.5.5",
+    "svelte": "^5.28.0",
+    "svelte-check": "^4.2.0",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.0"
+  }
+}

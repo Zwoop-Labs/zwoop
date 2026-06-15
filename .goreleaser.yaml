@@ -1,0 +1,47 @@
+version: 2
+
+project_name: zwoop
+
+before:
+  hooks:
+    - go mod download
+    - sh -c "cd web && npm install --frozen-lockfile && npm run build"
+
+builds:
+  - id: zwoop
+    main: ./cmd/zwoop
+    binary: zwoop
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+dockers_v2:
+  - images:
+      - "{{ .Env.DOCKERHUB_USERNAME }}/zwoop"
+    tags:
+      - "{{ .Version }}"
+      - latest
+    dockerfile: Dockerfile.goreleaser
+    platforms:
+      - linux/amd64
+      - linux/arm64
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  github:
+    owner: Zwoop-Labs
+    name: zwoop
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
