@@ -43,7 +43,7 @@ func TestRunGracefulShutdown(t *testing.T) {
 }
 
 func TestRunBadPort(t *testing.T) {
-	cfg := &config.Config{Port: "1"} // port 1 is privileged — bind will fail
+	cfg := &config.Config{Port: "99999"} // out-of-range port — bind will fail on all platforms
 
 	ctx := context.Background()
 	err := run(ctx, cfg)
