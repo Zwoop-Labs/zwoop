@@ -1,5 +1,5 @@
 # Zwoop
-
+<img src="web/public/logo.svg" alt="Zwoop logo" width="80" height="80">
 
 Browser-only P2P file transfer. No accounts, no data stored on any server. No practical file size limit - transfers are streamed directly between browsers via WebRTC (4 GB limit applies in private browsing windows).
 
