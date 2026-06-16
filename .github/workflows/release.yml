@@ -59,9 +59,10 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
-      - name: Deploy to Fly.io
+      - name: Set up flyctl
         uses: superfly/flyctl-actions/setup-flyctl@master
 
-      - run: flyctl deploy --image "ghcr.io/zwoop-labs/zwoop:${{ steps.image.outputs.tag }}@${{ steps.image.outputs.digest }}"
+      - name: Deploy to Fly.io
+        run: flyctl deploy --image "ghcr.io/zwoop-labs/zwoop:${{ steps.image.outputs.tag }}@${{ steps.image.outputs.digest }}"
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
