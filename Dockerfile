@@ -7,11 +7,12 @@ RUN npm run build
 
 FROM golang:1.26-alpine AS go-builder
 WORKDIR /app
+ARG VERSION=dev
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=web-builder /app/web/dist ./web/dist
-RUN CGO_ENABLED=0 GOOS=linux go build -o /zwoop ./cmd/zwoop
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-s -w -X main.version=${VERSION}" -o /zwoop ./cmd/zwoop
 
 FROM alpine:3.21
 RUN apk add --no-cache ca-certificates \
