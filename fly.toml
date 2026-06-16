@@ -1,4 +1,4 @@
-# fly.toml app configuration file generated for zwoop on 2026-06-15T16:47:48+02:00
+# fly.toml app configuration file generated for zwoop on 2026-06-16T07:25:57Z
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
@@ -17,6 +17,7 @@ primary_region = 'ams'
   processes = ['app']
 
 [[vm]]
+  cpu_kind = 'shared'
   memory = '256mb'
   cpus = 1
   memory_mb = 256
