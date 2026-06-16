@@ -54,11 +54,7 @@ jobs:
       - name: Get released image digest
         id: image
         run: |
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            TAG="${GITHUB_REF_NAME#v}"
-          else
-            TAG="latest"
-          fi
+          TAG=$(jq -r '.version' dist/metadata.json)
           DIGEST=$(docker buildx imagetools inspect "ghcr.io/zwoop-labs/zwoop:$TAG" --format '{{json .Manifest}}' | jq -r '.digest')
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
