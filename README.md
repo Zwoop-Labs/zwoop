@@ -26,8 +26,8 @@ Optional environment variables:
 | Variable | Description |
 |---|---|
 | `PORT` | Port to listen on (default: `8080`) |
-| `TURN_HOST` | TURN server hostname for NAT traversal |
-| `TURN_SECRET` | HMAC secret for TURN credentials |
+| `TRUST_PROXY_HEADERS` | Trust `X-Real-IP` / `X-Forwarded-For` (default: `false`) |
+| `ALLOWED_ORIGIN` | WebSocket origin allowlist, e.g. `https://zwoop.example.com` |
 
 ## Development
 
@@ -37,7 +37,7 @@ just test       # Go tests
 just build-all  # Production build (npm + go)
 ```
 
-Requires Go 1.22+, Node 20+, and [just](https://github.com/casey/just).
+Requires Go 1.26+, Node 22+, and [just](https://github.com/casey/just).
 
 ## License
 
