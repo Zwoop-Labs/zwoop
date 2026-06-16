@@ -51,9 +51,21 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
 
+      - name: Get released image digest
+        id: image
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG="${GITHUB_REF_NAME#v}"
+          else
+            TAG="latest"
+          fi
+          DIGEST=$(docker buildx imagetools inspect "ghcr.io/zwoop-labs/zwoop:$TAG" --format '{{json .Manifest}}' | jq -r '.digest')
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+
       - name: Deploy to Fly.io
         uses: superfly/flyctl-actions/setup-flyctl@master
 
-      - run: flyctl deploy --remote-only
+      - run: flyctl deploy --image "ghcr.io/zwoop-labs/zwoop:${{ steps.image.outputs.tag }}@${{ steps.image.outputs.digest }}"
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
