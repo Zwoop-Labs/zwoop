@@ -136,7 +136,10 @@
         oninput={() => { joinCode = joinCode.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 8); }}
         onkeydown={(e) => e.key === "Enter" && goToJoin()}
       />
-      <button onclick={goToJoin} disabled={joinCode.length < 8} style="align-self:center">Go</button>
+      <button onclick={goToJoin} disabled={joinCode.length < 8 || joinCode === code} style="align-self:center">Go</button>
+      {#if joinCode.length === 8 && joinCode === code}
+        <p class="status error">That's your own code — share it with the other device instead.</p>
+      {/if}
     </div>
 
   {:else if phase === "receiving"}
