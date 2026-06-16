@@ -17,6 +17,6 @@ primary_region = 'ams'
   processes = ['app']
 
 [[vm]]
-  memory = '1gb'
+  memory = '256mb'
   cpus = 1
-  memory_mb = 1024
+  memory_mb = 256
