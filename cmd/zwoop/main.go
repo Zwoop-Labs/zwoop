@@ -57,6 +57,7 @@ func main() {
 		Dsn:              cfg.SentryDSN,
 		Release:          version,
 		Environment:      cfg.Environment,
+		AttachStacktrace: true,
 		EnableTracing:    true,
 		TracesSampleRate: 0.15,
 	}); err != nil {
