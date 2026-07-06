@@ -9,6 +9,7 @@ import (
 	"github.com/Zwoop-Labs/zwoop/internal/config"
 	"github.com/Zwoop-Labs/zwoop/internal/session"
 	"github.com/Zwoop-Labs/zwoop/web"
+	sentryhttp "github.com/getsentry/sentry-go/http"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
@@ -42,7 +43,8 @@ func newWithLimiter(store *session.Store, cfg *config.Config, version string, se
 
 	r.Handle("/*", spaHandler())
 
-	return r
+	sentryHandler := sentryhttp.New(sentryhttp.Options{Repanic: true})
+	return sentryHandler.Handle(r)
 }
 
 func spaHandler() http.Handler {

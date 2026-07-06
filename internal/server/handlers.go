@@ -5,11 +5,13 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/Zwoop-Labs/zwoop/internal/config"
 	"github.com/Zwoop-Labs/zwoop/internal/session"
 	"github.com/coder/websocket"
+	"github.com/getsentry/sentry-go"
 )
 
 type signalMessage struct {
@@ -25,14 +27,20 @@ func sessionHandler(store *session.Store) http.HandlerFunc {
 				http.Error(w, "service unavailable", http.StatusServiceUnavailable)
 			} else {
 				slog.Error("failed to create session", "err", err)
+				sentry.CaptureException(err)
 				http.Error(w, "internal error", http.StatusInternalServerError)
 			}
 			return
 		}
+		sentry.NewMeter(r.Context()).Count("session.created", 1)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{"code": code})
 	}
 }
+
+// activeConnections tracks the number of currently open WebSocket connections,
+// reported to Sentry as a gauge on each connect/disconnect.
+var activeConnections int64
 
 func wsHandler(store *session.Store, cfg *config.Config) http.HandlerFunc {
 	acceptOpts := &websocket.AcceptOptions{}
@@ -65,7 +73,11 @@ func wsHandler(store *session.Store, cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
+		meter := sentry.NewMeter(r.Context())
+		meter.Gauge("ws.active_connections", float64(atomic.AddInt64(&activeConnections, 1)))
+
 		defer func() {
+			meter.Gauge("ws.active_connections", float64(atomic.AddInt64(&activeConnections, -1)))
 			if err := conn.CloseNow(); err != nil {
 				slog.Debug("ws close", "err", err)
 			}

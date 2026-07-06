@@ -12,6 +12,7 @@ import (
 	"github.com/Zwoop-Labs/zwoop/internal/config"
 	"github.com/Zwoop-Labs/zwoop/internal/server"
 	"github.com/Zwoop-Labs/zwoop/internal/session"
+	"github.com/getsentry/sentry-go"
 )
 
 var version = "dev"
@@ -50,11 +51,25 @@ func run(ctx context.Context, cfg *config.Config) error {
 func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, nil)))
 
+	cfg := config.Load()
+
+	if err := sentry.Init(sentry.ClientOptions{
+		Dsn:              cfg.SentryDSN,
+		Release:          version,
+		Environment:      cfg.Environment,
+		TracesSampleRate: 0.15,
+	}); err != nil {
+		slog.Error("sentry init failed", "err", err)
+	}
+	defer sentry.Flush(2 * time.Second)
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	if err := run(ctx, config.Load()); err != nil {
+	if err := run(ctx, cfg); err != nil {
 		slog.Error("server error", "err", err)
+		sentry.CaptureException(err)
+		sentry.Flush(2 * time.Second)
 		os.Exit(1)
 	}
 	slog.Info("shutdown complete")
