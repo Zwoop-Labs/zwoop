@@ -10,9 +10,11 @@ import (
 	"time"
 
 	"github.com/Zwoop-Labs/zwoop/internal/config"
+	"github.com/Zwoop-Labs/zwoop/internal/logging"
 	"github.com/Zwoop-Labs/zwoop/internal/server"
 	"github.com/Zwoop-Labs/zwoop/internal/session"
 	"github.com/getsentry/sentry-go"
+	sentryslog "github.com/getsentry/sentry-go/slog"
 )
 
 var version = "dev"
@@ -49,7 +51,8 @@ func run(ctx context.Context, cfg *config.Config) error {
 }
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, nil)))
+	textHandler := slog.NewTextHandler(os.Stdout, nil)
+	slog.SetDefault(slog.New(textHandler))
 
 	cfg := config.Load()
 
@@ -64,6 +67,11 @@ func main() {
 		slog.Error("sentry init failed", "err", err)
 	}
 	defer sentry.Flush(2 * time.Second)
+
+	sentryHandler := sentryslog.Option{
+		LogLevel: []slog.Level{slog.LevelInfo, slog.LevelWarn, slog.LevelError},
+	}.NewSentryHandler(context.Background())
+	slog.SetDefault(slog.New(logging.NewFanoutHandler(textHandler, sentryHandler)))
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
