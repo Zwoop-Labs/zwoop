@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
+  import * as Sentry from "@sentry/svelte";
   import QRCode from "qrcode";
   import { SignalingClient } from "../lib/signaling";
   import { createReceiver, fetchIceServers, resolveOpfsRoot, type ReceivedFile } from "../lib/webrtc";
@@ -82,11 +83,13 @@
         } catch (e) {
           phase = "error";
           errorMsg = String(e);
+          Sentry.captureException(e);
         }
       });
     } catch (e) {
       phase = "error";
       errorMsg = String(e);
+      Sentry.captureException(e);
     }
   });
 

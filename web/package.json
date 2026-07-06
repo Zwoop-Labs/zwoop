@@ -10,6 +10,7 @@
     "check": "svelte-check --tsconfig ./tsconfig.json"
   },
   "dependencies": {
+    "@sentry/svelte": "^10.63.0",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {

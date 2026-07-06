@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
+  import * as Sentry from "@sentry/svelte";
   import { SignalingClient } from "../lib/signaling";
   import { createSenderChannel, fetchIceServers, type SenderChannel } from "../lib/webrtc";
   import { formatBytes } from "../lib/format";
@@ -46,6 +47,7 @@
     } catch (e) {
       phase = "error";
       errorMsg = String(e);
+      Sentry.captureException(e);
     }
   });
 
@@ -74,6 +76,7 @@
     } catch (e) {
       phase = "error";
       errorMsg = String(e);
+      Sentry.captureException(e);
     }
   }
 
