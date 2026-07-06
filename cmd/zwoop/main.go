@@ -57,6 +57,7 @@ func main() {
 		Dsn:              cfg.SentryDSN,
 		Release:          version,
 		Environment:      cfg.Environment,
+		EnableTracing:    true,
 		TracesSampleRate: 0.15,
 	}); err != nil {
 		slog.Error("sentry init failed", "err", err)
