@@ -12,6 +12,7 @@ if (import.meta.env.VITE_SENTRY_DSN) {
     tracePropagationTargets: [window.location.origin],
     replaysSessionSampleRate: 0.1,
     replaysOnErrorSampleRate: 1.0,
+    enableLogs: true,
   });
 }
 
