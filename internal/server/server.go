@@ -9,7 +9,6 @@ import (
 	"github.com/Zwoop-Labs/zwoop/internal/config"
 	"github.com/Zwoop-Labs/zwoop/internal/session"
 	"github.com/Zwoop-Labs/zwoop/web"
-	sentryhttp "github.com/getsentry/sentry-go/http"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
@@ -17,7 +16,7 @@ import (
 func cspMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Security-Policy",
-			"default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self' wss: https://*.sentry.io; worker-src 'self' blob:; object-src 'none'; base-uri 'none'")
+			"default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self' wss:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -43,8 +42,7 @@ func newWithLimiter(store *session.Store, cfg *config.Config, version string, se
 
 	r.Handle("/*", spaHandler())
 
-	sentryHandler := sentryhttp.New(sentryhttp.Options{Repanic: true})
-	return sentryHandler.Handle(r)
+	return r
 }
 
 func spaHandler() http.Handler {

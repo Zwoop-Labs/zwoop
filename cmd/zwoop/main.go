@@ -10,11 +10,8 @@ import (
 	"time"
 
 	"github.com/Zwoop-Labs/zwoop/internal/config"
-	"github.com/Zwoop-Labs/zwoop/internal/logging"
 	"github.com/Zwoop-Labs/zwoop/internal/server"
 	"github.com/Zwoop-Labs/zwoop/internal/session"
-	"github.com/getsentry/sentry-go"
-	sentryslog "github.com/getsentry/sentry-go/slog"
 )
 
 var version = "dev"
@@ -56,30 +53,11 @@ func main() {
 
 	cfg := config.Load()
 
-	if err := sentry.Init(sentry.ClientOptions{
-		Dsn:              cfg.SentryDSN,
-		Release:          version,
-		Environment:      cfg.Environment,
-		AttachStacktrace: true,
-		EnableTracing:    true,
-		TracesSampleRate: 0.15,
-	}); err != nil {
-		slog.Error("sentry init failed", "err", err)
-	}
-	defer sentry.Flush(2 * time.Second)
-
-	sentryHandler := sentryslog.Option{
-		LogLevel: []slog.Level{slog.LevelInfo, slog.LevelWarn, slog.LevelError},
-	}.NewSentryHandler(context.Background())
-	slog.SetDefault(slog.New(logging.NewFanoutHandler(textHandler, sentryHandler)))
-
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	if err := run(ctx, cfg); err != nil {
 		slog.Error("server error", "err", err)
-		sentry.CaptureException(err)
-		sentry.Flush(2 * time.Second)
 		os.Exit(1)
 	}
 	slog.Info("shutdown complete")
