@@ -1,3 +1,6 @@
+import { bytesToHex, hexToBytes } from "@noble/curves/utils.js";
+import { computeFingerprintMac, verifyFingerprintMac } from "./channelBinding";
+import { SECURITY_ERROR } from "./pairing";
 import type { SignalingClient } from "./signaling";
 import { formatBytes } from "./format";
 
@@ -40,6 +43,27 @@ export async function fetchIceServers(): Promise<IceServer[]> {
   return res.json() as Promise<IceServer[]>;
 }
 
+// SDP wrapped with an HMAC of its own DTLS fingerprint, keyed by the SPAKE2
+// pairing secret (see pairing.ts / channelBinding.ts). This is what stops a
+// signaling relay from swapping in its own certificate to sit in the middle
+// of the WebRTC connection, even one that otherwise behaves correctly.
+interface SignedSdp {
+  sdp: RTCSessionDescriptionInit;
+  mac: string; // hex
+}
+
+function signSdp(macKey: Uint8Array, sdp: RTCSessionDescriptionInit): SignedSdp {
+  return { sdp, mac: bytesToHex(computeFingerprintMac(macKey, sdp.sdp ?? "")) };
+}
+
+function verifySignedSdp(macKey: Uint8Array, signed: SignedSdp): boolean {
+  try {
+    return verifyFingerprintMac(macKey, signed.sdp.sdp ?? "", hexToBytes(signed.mac));
+  } catch {
+    return false;
+  }
+}
+
 // ─── Receiver (answerer) ─────────────────────────────────────────────────────
 
 export interface ReceivedFile {
@@ -71,6 +95,7 @@ export async function resolveOpfsRoot(): Promise<FileSystemDirectoryHandle | nul
 export function createReceiver(
   signal: SignalingClient,
   iceServers: IceServer[],
+  macKey: Uint8Array,
   opfsRoot: FileSystemDirectoryHandle | null,
   onProgress: (received: number, total: number) => void,
   onFile: (file: ReceivedFile) => void,
@@ -79,7 +104,8 @@ export function createReceiver(
   const pc = new RTCPeerConnection({ iceServers });
 
   pc.addEventListener("icecandidate", ({ candidate }) => {
-    if (candidate) {
+    // Some browsers use an empty candidate string, not null, for end-of-candidates.
+    if (candidate && candidate.candidate) {
       signal.send({ type: "candidate", payload: candidate });
     }
   });
@@ -180,10 +206,17 @@ export function createReceiver(
   const offSignal = signal.on(async (msg) => {
     try {
       if (msg.type === "offer") {
-        await pc.setRemoteDescription(new RTCSessionDescription(msg.payload as RTCSessionDescriptionInit));
+        const signed = msg.payload as SignedSdp;
+        if (!verifySignedSdp(macKey, signed)) {
+          onError?.(SECURITY_ERROR);
+          offSignal();
+          pc.close();
+          return;
+        }
+        await pc.setRemoteDescription(new RTCSessionDescription(signed.sdp));
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
-        signal.send({ type: "answer", payload: answer });
+        signal.send({ type: "answer", payload: signSdp(macKey, answer) });
       } else if (msg.type === "candidate") {
         await pc.addIceCandidate(new RTCIceCandidate(msg.payload as RTCIceCandidateInit));
       }
@@ -213,7 +246,8 @@ export interface SenderChannel {
 
 export async function createSenderChannel(
   signal: SignalingClient,
-  iceServers: IceServer[]
+  iceServers: IceServer[],
+  macKey: Uint8Array
 ): Promise<SenderChannel> {
   const pc = new RTCPeerConnection({ iceServers });
   const channel = pc.createDataChannel("file");
@@ -221,16 +255,20 @@ export async function createSenderChannel(
   channel.bufferedAmountLowThreshold = BUFFERED_AMOUNT_LOW_THRESHOLD;
 
   let channelError: Error | null = null;
-  let rejectCurrentSend: ((e: Error) => void) | null = null;
+  let rejectPending: ((e: Error) => void) | null = null;
 
   const fail = (msg: string) => {
     if (channelError) return;
     channelError = new Error(msg);
-    rejectCurrentSend?.(channelError);
+    rejectPending?.(channelError);
+    offSignal();
+    channel.close();
+    pc.close();
   };
 
   pc.addEventListener("icecandidate", ({ candidate }) => {
-    if (candidate) {
+    // Some browsers use an empty candidate string, not null, for end-of-candidates.
+    if (candidate && candidate.candidate) {
       signal.send({ type: "candidate", payload: candidate });
     }
   });
@@ -243,7 +281,12 @@ export async function createSenderChannel(
 
   const offSignal = signal.on(async (msg) => {
     if (msg.type === "answer") {
-      await pc.setRemoteDescription(new RTCSessionDescription(msg.payload as RTCSessionDescriptionInit));
+      const signed = msg.payload as SignedSdp;
+      if (!verifySignedSdp(macKey, signed)) {
+        fail(SECURITY_ERROR);
+        return;
+      }
+      await pc.setRemoteDescription(new RTCSessionDescription(signed.sdp));
     } else if (msg.type === "candidate") {
       await pc.addIceCandidate(new RTCIceCandidate(msg.payload as RTCIceCandidateInit));
     }
@@ -251,11 +294,25 @@ export async function createSenderChannel(
 
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
-  signal.send({ type: "offer", payload: offer });
+  signal.send({ type: "offer", payload: signSdp(macKey, offer) });
 
   await new Promise<void>((resolve, reject) => {
-    channel.addEventListener("open", () => resolve());
-    channel.addEventListener("error", () => reject(new Error("Failed to open data channel.")));
+    // fail() (e.g. a failed SDP security check on the answer) may already
+    // have fired by the time we get here, or may fire before "open" —
+    // either way this wait must reject, not hang forever.
+    if (channelError) {
+      reject(channelError);
+      return;
+    }
+    rejectPending = reject;
+    channel.addEventListener("open", () => {
+      rejectPending = null;
+      resolve();
+    });
+    channel.addEventListener("error", () => {
+      rejectPending = null;
+      reject(new Error("Failed to open data channel."));
+    });
   });
 
   return {
@@ -270,16 +327,16 @@ export async function createSenderChannel(
 
         if (channel.bufferedAmount > BUFFERED_AMOUNT_LOW_THRESHOLD) {
           await new Promise<void>((resolve, reject) => {
-            rejectCurrentSend = reject;
+            rejectPending = reject;
             channel.addEventListener(
               "bufferedamountlow",
-              () => { rejectCurrentSend = null; resolve(); },
+              () => { rejectPending = null; resolve(); },
               { once: true }
             );
             // Re-check in case the buffer drained between the outer if and
             // this listener registration — without this the Promise never resolves.
             if (channel.bufferedAmount <= BUFFERED_AMOUNT_LOW_THRESHOLD) {
-              rejectCurrentSend = null;
+              rejectPending = null;
               resolve();
             }
           });

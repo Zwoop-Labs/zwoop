@@ -1,12 +1,13 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
+  import { authenticate, SECURITY_ERROR } from "../lib/pairing";
   import { SignalingClient } from "../lib/signaling";
   import { createSenderChannel, fetchIceServers, type SenderChannel } from "../lib/webrtc";
   import { formatBytes } from "../lib/format";
 
   const { code }: { code: string } = $props();
 
-  type Phase = "connecting" | "waiting-pair" | "pick-file" | "sending" | "done" | "error";
+  type Phase = "connecting" | "waiting-pair" | "verifying" | "pick-file" | "sending" | "done" | "error";
 
   let phase: Phase = $state("connecting");
   let progress = $state(0); // 0–1
@@ -19,28 +20,66 @@
   let signal: SignalingClient | null = null;
   let iceServers: Awaited<ReturnType<typeof fetchIceServers>> = [];
   let senderChannel: SenderChannel | null = null;
+  let macKey: Uint8Array | null = null;
+  // Set before we close signal ourselves, so onClose can tell a self-inflicted
+  // close apart from a genuine disconnect.
+  let selfClosed = false;
+
+  // See the matching comment in Receiver.svelte: the server can send
+  // "paired" more than once to a peer whose own connection never dropped
+  // (the current UI doesn't trigger this for the sender, but nothing in the
+  // protocol rules it out either — e.g. a future reconnect feature could).
+  // Every async continuation below checks it's still current before acting,
+  // so a stale in-flight pairing attempt can never clobber a newer one.
+  let pairingGen = 0;
+
+  async function verifyAndProceed() {
+    const myGen = ++pairingGen;
+    phase = "verifying";
+    try {
+      const key = await authenticate(signal!, code, "sender");
+      if (myGen !== pairingGen) return;
+      macKey = key;
+      phase = "pick-file";
+    } catch (e) {
+      if (myGen !== pairingGen) return;
+      phase = "error";
+      errorMsg = e instanceof Error ? e.message : String(e);
+      // Close so the receiver gets a prompt peer-left notice instead of
+      // hanging indefinitely on a pairing that can now never complete.
+      selfClosed = true;
+      signal?.close();
+    }
+  }
 
   onMount(async () => {
     try {
       signal = new SignalingClient(code, "sender");
 
       signal.onClose(() => {
+        if (selfClosed) return;
         if (phase !== "done" && phase !== "sending") {
           phase = "error";
           errorMsg = "Connection lost.";
         }
       });
 
-      [iceServers] = await Promise.all([fetchIceServers(), signal.ready()]);
-
+      // Registered before the Promise.all await below: the server sends
+      // "paired" as soon as this peer's WS join completes, which can race
+      // ahead of fetchIceServers() resolving. The signaling channel doesn't
+      // replay missed messages, so a handler registered after that await
+      // could miss it and hang forever.
       signal.on((msg) => {
         if (msg.type === "paired") {
-          phase = "pick-file";
+          void verifyAndProceed();
         } else if (msg.type === "peer-left") {
+          // Not guarded by phase — "done" still offers "Send another".
           phase = "error";
           errorMsg = "Receiver disconnected.";
         }
       });
+
+      [iceServers] = await Promise.all([fetchIceServers(), signal.ready()]);
 
       if (phase === "connecting") phase = "waiting-pair";
     } catch (e) {
@@ -57,7 +96,7 @@
   async function handleFile(ev: Event) {
     const input = ev.target as HTMLInputElement;
     const file = input.files?.[0];
-    if (!file || !signal) return;
+    if (!file || !signal || !macKey) return;
 
     fileName = file.name;
     fileSize = file.size;
@@ -65,7 +104,7 @@
 
     try {
       if (!senderChannel) {
-        senderChannel = await createSenderChannel(signal, iceServers);
+        senderChannel = await createSenderChannel(signal, iceServers, macKey);
       }
       await senderChannel.send(file, (sent, total) => {
         progress = total > 0 ? sent / total : 0;
@@ -74,6 +113,13 @@
     } catch (e) {
       phase = "error";
       errorMsg = String(e);
+      // A failed SDP security check means the receiver's side can never
+      // complete the exchange either — close so it gets a prompt peer-left
+      // notice instead of waiting on a file that will never arrive.
+      if (e instanceof Error && e.message === SECURITY_ERROR) {
+        selfClosed = true;
+        signal?.close();
+      }
     }
   }
 
@@ -108,6 +154,9 @@
 
   {:else if phase === "waiting-pair"}
     <p class="status">Waiting for receiver to be ready…</p>
+
+  {:else if phase === "verifying"}
+    <p class="status">Verifying secure connection…</p>
 
   {:else if phase === "pick-file"}
     <label for="file-input">

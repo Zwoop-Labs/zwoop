@@ -1,11 +1,12 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import QRCode from "qrcode";
+  import { authenticate, SECURITY_ERROR } from "../lib/pairing";
   import { SignalingClient } from "../lib/signaling";
   import { createReceiver, fetchIceServers, resolveOpfsRoot, type ReceivedFile } from "../lib/webrtc";
   import { formatBytes } from "../lib/format";
 
-  type Phase = "loading" | "waiting-sender" | "waiting-file" | "receiving" | "done" | "error";
+  type Phase = "loading" | "waiting-sender" | "verifying" | "waiting-file" | "receiving" | "done" | "error";
 
   let phase: Phase = $state("loading");
   let code = $state("");
@@ -17,6 +18,72 @@
 
   let signal: SignalingClient | null = null;
   let cleanupReceiver: (() => void) | null = null;
+  let iceServers: Awaited<ReturnType<typeof fetchIceServers>> = [];
+  let opfsRoot: Awaited<ReturnType<typeof resolveOpfsRoot>> = null;
+  // Set before we close signal ourselves, so onClose can tell a self-inflicted
+  // close apart from a genuine disconnect.
+  let selfClosed = false;
+
+  // Incremented on every "paired" event. The server can legitimately send
+  // "paired" more than once to a peer whose own connection never dropped —
+  // e.g. the sender hits an error and reloads, rejoining the same code while
+  // this receiver is still connected. Without this guard, an in-flight
+  // verifyAndProceed() from the earlier pairing could still resolve (with a
+  // stale Spake2Session) after a newer one has already started, and either
+  // clobber good state or spuriously report a security failure and tear the
+  // connection down. Every async continuation below checks it's still current
+  // before acting.
+  let pairingGen = 0;
+
+  async function verifyAndProceed() {
+    const myGen = ++pairingGen;
+    phase = "verifying";
+    try {
+      const macKey = await authenticate(signal!, code, "receiver");
+      if (myGen !== pairingGen) return;
+      phase = "waiting-file";
+      cleanupReceiver?.();
+      cleanupReceiver = createReceiver(
+        signal!,
+        iceServers,
+        macKey,
+        opfsRoot,
+        (received, total) => {
+          if (myGen !== pairingGen) return;
+          phase = "receiving";
+          progress = total > 0 ? received / total : 0;
+        },
+        (file) => {
+          if (myGen !== pairingGen) return;
+          receivedFile = file;
+          phase = "done";
+          triggerDownload(file);
+        },
+        (msg) => {
+          if (myGen !== pairingGen) return;
+          phase = "error";
+          errorMsg = msg;
+          // A failed SDP security check means the sender's side can never
+          // complete the offer/answer exchange — close so it gets a prompt
+          // peer-left notice instead of hanging. Other receiver-local
+          // errors (storage, bad metadata) don't warrant tearing this down.
+          if (msg === SECURITY_ERROR) {
+            selfClosed = true;
+            signal?.close();
+          }
+        }
+      );
+    } catch (e) {
+      if (myGen !== pairingGen) return;
+      // Tear down any prior successful pairing — it's no longer valid.
+      cleanupReceiver?.();
+      cleanupReceiver = null;
+      phase = "error";
+      errorMsg = e instanceof Error ? e.message : String(e);
+      selfClosed = true;
+      signal?.close();
+    }
+  }
 
   onMount(async () => {
     try {
@@ -37,53 +104,37 @@
       const joinUrl = `${location.origin}/join/${code}`;
       qrDataUrl = await QRCode.toDataURL(joinUrl, { width: 200, margin: 1, color: { dark: "#a78bfa", light: "#1a1a1a" } });
 
-      const [iceServers, opfsRoot] = await Promise.all([fetchIceServers(), resolveOpfsRoot()]);
+      [iceServers, opfsRoot] = await Promise.all([fetchIceServers(), resolveOpfsRoot()]);
 
       signal = new SignalingClient(code, "receiver");
-      await signal.ready();
-      phase = "waiting-sender";
 
       signal.onClose(() => {
+        if (selfClosed) return;
         if (phase !== "done" && phase !== "receiving") {
           phase = "error";
           errorMsg = "Connection lost.";
         }
       });
 
+      // Registered before awaiting signal.ready(): "paired" (or any other
+      // message) could in principle arrive as soon as the socket opens, and
+      // the signaling channel doesn't replay missed messages.
       signal.on((msg) => {
-        try {
-          if (msg.type === "paired") {
-            phase = "waiting-file";
-            cleanupReceiver?.();
-            cleanupReceiver = createReceiver(
-              signal!,
-              iceServers,
-              opfsRoot,
-              (received, total) => {
-                phase = "receiving";
-                progress = total > 0 ? received / total : 0;
-              },
-              (file) => {
-                receivedFile = file;
-                phase = "done";
-                triggerDownload(file);
-              },
-              (msg) => {
-                phase = "error";
-                errorMsg = msg;
-              }
-            );
-          } else if (msg.type === "peer-left") {
-            if (phase !== "done") {
-              phase = "error";
-              errorMsg = "Sender disconnected.";
-            }
+        if (msg.type === "paired") {
+          void verifyAndProceed();
+        } else if (msg.type === "peer-left") {
+          if (phase !== "done") {
+            phase = "error";
+            errorMsg = "Sender disconnected.";
           }
-        } catch (e) {
-          phase = "error";
-          errorMsg = String(e);
         }
       });
+
+      await signal.ready();
+      // Guarded: "paired" (registered above) could have already arrived and
+      // advanced phase past "loading" while this await was pending — don't
+      // stomp that back to "waiting-sender".
+      if (phase === "loading") phase = "waiting-sender";
     } catch (e) {
       phase = "error";
       errorMsg = String(e);
@@ -141,6 +192,9 @@
         <p class="status error">That's your own code — share it with the other device instead.</p>
       {/if}
     </div>
+
+  {:else if phase === "verifying"}
+    <p class="status">Verifying secure connection…</p>
 
   {:else if phase === "receiving"}
     <p class="status">Receiving…</p>
