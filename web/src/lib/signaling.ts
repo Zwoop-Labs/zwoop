@@ -5,7 +5,14 @@ export interface SignalMessage {
 
 export type MessageHandler = (msg: SignalMessage) => void;
 
-export class SignalingClient {
+/** The subset of SignalingClient that pairing.ts needs — lets tests use an in-memory fake. */
+export interface SignalTransport {
+  on(handler: MessageHandler): () => void;
+  onClose(handler: () => void): () => void;
+  send(msg: SignalMessage): void;
+}
+
+export class SignalingClient implements SignalTransport {
   private ws: WebSocket;
   private handlers: MessageHandler[] = [];
   private _open: Promise<void>;
@@ -48,7 +55,8 @@ export class SignalingClient {
     this.ws.close();
   }
 
-  onClose(handler: () => void): void {
+  onClose(handler: () => void): () => void {
     this.ws.addEventListener("close", handler);
+    return () => this.ws.removeEventListener("close", handler);
   }
 }
