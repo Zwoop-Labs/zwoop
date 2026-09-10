@@ -2,6 +2,7 @@ package session
 
 import (
 	"testing"
+	"time"
 )
 
 func TestCreate(t *testing.T) {
@@ -192,6 +193,61 @@ func TestClose(t *testing.T) {
 	s.Create()
 	// Close must not block or panic; it signals the reaper goroutine to exit.
 	s.Close()
+}
+
+func TestReapOnceNotifiesLoneConnectedPeer(t *testing.T) {
+	s := NewStore()
+	defer s.Close()
+	code, _ := s.Create()
+	_, rCh, _ := s.Join(code, "receiver")
+
+	var notified chan []byte
+	s.SetExpireHook(func(ch chan []byte) { notified = ch })
+
+	s.Reap(time.Now().Add(ttl + time.Second))
+
+	if notified != rCh {
+		t.Fatal("expire hook should have been called with the lone receiver's channel")
+	}
+	if _, _, ok := s.Join(code, "sender"); ok {
+		t.Fatal("session should have been evicted, so Join() should fail")
+	}
+}
+
+func TestReapOnceSkipsPairedSessions(t *testing.T) {
+	s := NewStore()
+	defer s.Close()
+	code, _ := s.Create()
+	s.Join(code, "receiver")
+	s.Join(code, "sender")
+
+	called := false
+	s.SetExpireHook(func(ch chan []byte) { called = true })
+
+	s.Reap(time.Now().Add(ttl + time.Second))
+
+	if called {
+		t.Fatal("expire hook should not fire for a paired session")
+	}
+	if _, _, ok := s.Join(code, "receiver"); ok {
+		t.Fatal("paired session should not have been evicted")
+	}
+}
+
+func TestReapOnceSkipsFreshSessions(t *testing.T) {
+	s := NewStore()
+	defer s.Close()
+	code, _ := s.Create()
+	s.Join(code, "receiver")
+
+	called := false
+	s.SetExpireHook(func(ch chan []byte) { called = true })
+
+	s.Reap(time.Now())
+
+	if called {
+		t.Fatal("expire hook should not fire before the TTL has elapsed")
+	}
 }
 
 func TestDelete(t *testing.T) {

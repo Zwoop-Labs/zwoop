@@ -76,6 +76,11 @@
           // Not guarded by phase — "done" still offers "Send another".
           phase = "error";
           errorMsg = "Receiver disconnected.";
+        } else if (msg.type === "expired") {
+          phase = "error";
+          errorMsg = "Session expired. Please create a new code.";
+          selfClosed = true;
+          signal?.close();
         }
       });
 

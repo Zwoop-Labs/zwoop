@@ -19,14 +19,29 @@ const ID_SENDER = new TextEncoder().encode("sender");
 export const SECURITY_ERROR =
   "Security check failed. The connection could not be verified and may have been tampered with.";
 
+// A stuck peer (e.g. a suspended tab, or a relay that drops messages without
+// closing the socket) would otherwise leave the other side waiting forever
+// on "Verifying secure connection…" with no way out but a reload.
+const PAIRING_TIMEOUT_MS = 15_000;
+
 // Waits for one message of `type`. Also rejects on "peer-left" — the relay
-// sends that on the *other* peer's disconnect, without closing our socket.
+// sends that on the *other* peer's disconnect, without closing our socket —
+// and if nothing arrives within PAIRING_TIMEOUT_MS.
 function waitForMessage(signal: SignalTransport, type: string): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        offMsg();
+        offClose();
+        reject(new Error("Pairing timed out."));
+      }
+    }, PAIRING_TIMEOUT_MS);
     const offClose = signal.onClose(() => {
       if (!settled) {
         settled = true;
+        clearTimeout(timer);
         offMsg();
         reject(new Error("Connection closed before pairing completed."));
       }
@@ -35,11 +50,13 @@ function waitForMessage(signal: SignalTransport, type: string): Promise<unknown>
       if (settled) return;
       if (msg.type === type) {
         settled = true;
+        clearTimeout(timer);
         offMsg();
         offClose();
         resolve(msg.payload);
       } else if (msg.type === "peer-left") {
         settled = true;
+        clearTimeout(timer);
         offMsg();
         offClose();
         reject(new Error("Peer disconnected before pairing completed."));

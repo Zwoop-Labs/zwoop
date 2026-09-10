@@ -1,5 +1,5 @@
 import { bytesToHex } from "@noble/curves/utils.js";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { SECURITY_ERROR, authenticate } from "./pairing";
 import type { MessageHandler, SignalMessage, SignalTransport } from "./signaling";
 
@@ -114,5 +114,39 @@ describe("pairing.authenticate", () => {
     a.receive({ type: "peer-left" });
 
     await expect(p).rejects.toThrow("Peer disconnected before pairing completed.");
+  });
+
+  it("times out if the peer never responds", async () => {
+    vi.useFakeTimers();
+    try {
+      const a = new FakeSignal();
+      const b = new FakeSignal();
+      link(a, b);
+      // b never responds and never disconnects — a should time out.
+
+      const p = authenticate(a, "abcd1234", "receiver");
+      const assertion = expect(p).rejects.toThrow("Pairing timed out.");
+      await vi.advanceTimersByTimeAsync(15_000);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not time out if the peer responds promptly", async () => {
+    vi.useFakeTimers();
+    try {
+      const a = new FakeSignal();
+      const b = new FakeSignal();
+      link(a, b);
+
+      const results = Promise.all([authenticate(a, "abcd1234", "receiver"), authenticate(b, "abcd1234", "sender")]);
+      // Let queued microtasks (message delivery) run alongside fake-timer ticks.
+      await vi.advanceTimersByTimeAsync(0);
+      const [keyReceiver, keySender] = await results;
+      expect(bytesToHex(keyReceiver)).toBe(bytesToHex(keySender));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

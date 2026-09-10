@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -31,6 +32,24 @@ func sessionHandler(store *session.Store) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{"code": code})
+	}
+}
+
+// sendExpiredNotice tells a lone connected peer their session was evicted
+// for sitting unpaired past the TTL. Mirrors the peer-left send in
+// wsHandler's cleanup: non-blocking with a bounded async fallback so a slow
+// or adversarial peer can't hold up the reaper.
+func sendExpiredNotice(ch chan []byte) {
+	msg, _ := json.Marshal(signalMessage{Type: "expired"})
+	select {
+	case ch <- msg:
+	default:
+		go func() {
+			select {
+			case ch <- msg:
+			case <-time.After(5 * time.Second):
+			}
+		}()
 	}
 }
 
@@ -137,7 +156,10 @@ func wsHandler(store *session.Store, cfg *config.Config) http.HandlerFunc {
 					return
 				}
 			case <-pingTicker.C:
-				if err := conn.Ping(ctx); err != nil {
+				pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+				err := conn.Ping(pingCtx)
+				cancel()
+				if err != nil {
 					return
 				}
 			case <-readDone:

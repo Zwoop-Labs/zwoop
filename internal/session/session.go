@@ -35,6 +35,15 @@ type Store struct {
 	mu       sync.Mutex
 	sessions map[string]*Session
 	quit     chan struct{}
+	onExpire func(peerCh chan []byte)
+}
+
+// SetExpireHook registers a callback invoked with the channel of a lone
+// connected peer whenever the reaper evicts their unpaired, stale session.
+func (s *Store) SetExpireHook(fn func(peerCh chan []byte)) {
+	s.mu.Lock()
+	s.onExpire = fn
+	s.mu.Unlock()
 }
 
 func NewStore() *Store {
@@ -133,6 +142,20 @@ func (sess *Session) Other(role string) chan []byte {
 	return nil
 }
 
+// ConnectedPeer returns the channel of whichever single peer is connected.
+// Returns nil if no peer or both peers are connected.
+func (sess *Session) ConnectedPeer() chan []byte {
+	sess.mu.RLock()
+	defer sess.mu.RUnlock()
+	if sess.receiver != nil && sess.sender == nil {
+		return sess.receiver.ch
+	}
+	if sess.sender != nil && sess.receiver == nil {
+		return sess.sender.ch
+	}
+	return nil
+}
+
 // OtherIfPaired returns the other peer's channel only if both peers are
 // currently connected, under a single lock so Paired + Other is atomic.
 func (sess *Session) OtherIfPaired(role string) chan []byte {
@@ -196,16 +219,34 @@ func (s *Store) reap() {
 	for {
 		select {
 		case <-t.C:
-			s.mu.Lock()
-			now := time.Now()
-			for code, sess := range s.sessions {
-				if !sess.Paired() && now.Sub(sess.created) > ttl {
-					delete(s.sessions, code)
-				}
-			}
-			s.mu.Unlock()
+			s.Reap(time.Now())
 		case <-s.quit:
 			return
 		}
+	}
+}
+
+// Reap evicts sessions past the TTL that never paired, notifying a lone
+// connected peer via the expire hook (if set) so it isn't left hanging.
+// Split out from reap() so tests can drive it with a fixed time.
+func (s *Store) Reap(now time.Time) {
+	s.mu.Lock()
+	var notify []chan []byte
+	for code, sess := range s.sessions {
+		if !sess.Paired() && now.Sub(sess.created) > ttl {
+			if ch := sess.ConnectedPeer(); ch != nil {
+				notify = append(notify, ch)
+			}
+			delete(s.sessions, code)
+		}
+	}
+	hook := s.onExpire
+	s.mu.Unlock()
+
+	if hook == nil {
+		return
+	}
+	for _, ch := range notify {
+		hook(ch)
 	}
 }

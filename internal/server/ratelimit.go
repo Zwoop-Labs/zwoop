@@ -12,9 +12,15 @@ import (
 const (
 	sessionRateLimitMax = 5
 	rateLimitWindow     = 60 * time.Second
+	// Higher than sessionRateLimitMax to allow for reconnects and NAT sharing.
+	wsRateLimitMax    = 20
+	wsRateLimitWindow = 60 * time.Second
 	// maxTrackedIPs caps the in-memory map so a botnet rotating through millions
 	// of unique IPs cannot exhaust heap. New IPs are denied when the cap is hit.
 	maxTrackedIPs = 100_000
+	// sweepInterval bounds how often allow() pays for a full-map scan to evict
+	// IPs whose window expired without another request from them.
+	sweepInterval = 5 * time.Minute
 )
 
 type clock interface {
@@ -32,6 +38,7 @@ type ipLimiter struct {
 	trustProxy bool
 	max        int
 	window     time.Duration
+	lastSweep  time.Time
 }
 
 func newIPLimiter(trustProxy bool, max int, window time.Duration) *ipLimiter {
@@ -44,6 +51,7 @@ func (l *ipLimiter) allow(ip string) bool {
 
 	now := l.clock.Now()
 	cutoff := now.Add(-l.window)
+	l.sweep(now, cutoff)
 
 	ts := l.windows[ip]
 	i := 0
@@ -69,6 +77,21 @@ func (l *ipLimiter) allow(ip string) bool {
 
 	l.windows[ip] = append(ts, now)
 	return true
+}
+
+// sweep evicts IPs that never called allow() again after their window
+// expired, so one-time visitors don't accumulate forever. Runs at most once
+// per sweepInterval; caller must hold l.mu.
+func (l *ipLimiter) sweep(now, cutoff time.Time) {
+	if now.Sub(l.lastSweep) < sweepInterval {
+		return
+	}
+	l.lastSweep = now
+	for ip, ts := range l.windows {
+		if len(ts) == 0 || ts[len(ts)-1].Before(cutoff) {
+			delete(l.windows, ip)
+		}
+	}
 }
 
 // extractIP returns the client IP. Proxy headers are only trusted when

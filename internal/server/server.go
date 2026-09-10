@@ -22,10 +22,15 @@ func cspMiddleware(next http.Handler) http.Handler {
 }
 
 func New(store *session.Store, cfg *config.Config, version string) http.Handler {
-	return newWithLimiter(store, cfg, version, newIPLimiter(cfg.TrustedProxy, sessionRateLimitMax, rateLimitWindow))
+	return newWithLimiter(store, cfg, version,
+		newIPLimiter(cfg.TrustedProxy, sessionRateLimitMax, rateLimitWindow),
+		newIPLimiter(cfg.TrustedProxy, wsRateLimitMax, wsRateLimitWindow),
+	)
 }
 
-func newWithLimiter(store *session.Store, cfg *config.Config, version string, sessionLimiter *ipLimiter) http.Handler {
+func newWithLimiter(store *session.Store, cfg *config.Config, version string, sessionLimiter, wsLimiter *ipLimiter) http.Handler {
+	store.SetExpireHook(sendExpiredNotice)
+
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
@@ -38,7 +43,7 @@ func newWithLimiter(store *session.Store, cfg *config.Config, version string, se
 		r.Get("/ice-servers", iceServersHandler(cfg))
 		r.Get("/version", versionHandler(version))
 	})
-	r.Get("/ws/{code}", wsHandler(store, cfg))
+	r.With(rateLimitMiddleware(wsLimiter)).Get("/ws/{code}", wsHandler(store, cfg))
 
 	r.Handle("/*", spaHandler())
 

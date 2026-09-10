@@ -127,6 +127,13 @@
             phase = "error";
             errorMsg = "Sender disconnected.";
           }
+        } else if (msg.type === "expired") {
+          if (phase !== "done") {
+            phase = "error";
+            errorMsg = "Session expired. Please create a new code.";
+            selfClosed = true;
+            signal?.close();
+          }
         }
       });
 

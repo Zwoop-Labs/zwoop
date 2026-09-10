@@ -20,7 +20,10 @@ func newTestServer(t *testing.T, cfg *config.Config) *httptest.Server {
 	t.Helper()
 	store := session.NewStore()
 	t.Cleanup(store.Close)
-	return httptest.NewServer(newWithLimiter(store, cfg, "test", newIPLimiter(false, sessionRateLimitMax, rateLimitWindow)))
+	return httptest.NewServer(newWithLimiter(store, cfg, "test",
+		newIPLimiter(false, sessionRateLimitMax, rateLimitWindow),
+		newIPLimiter(false, wsRateLimitMax, wsRateLimitWindow),
+	))
 }
 
 type fakeClock struct{ t time.Time }
@@ -32,7 +35,14 @@ func newTestServerWithLimiter(t *testing.T, cfg *config.Config, sessionLimiter *
 	t.Helper()
 	store := session.NewStore()
 	t.Cleanup(store.Close)
-	return httptest.NewServer(newWithLimiter(store, cfg, "test", sessionLimiter))
+	return httptest.NewServer(newWithLimiter(store, cfg, "test", sessionLimiter, newIPLimiter(false, wsRateLimitMax, wsRateLimitWindow)))
+}
+
+func newTestServerWithWSLimiter(t *testing.T, cfg *config.Config, wsLimiter *ipLimiter) *httptest.Server {
+	t.Helper()
+	store := session.NewStore()
+	t.Cleanup(store.Close)
+	return httptest.NewServer(newWithLimiter(store, cfg, "test", newIPLimiter(false, sessionRateLimitMax, rateLimitWindow), wsLimiter))
 }
 
 func defaultCfg() *config.Config {
@@ -221,6 +231,38 @@ func TestWSRelayPeerLeft(t *testing.T) {
 	}
 }
 
+func TestWSExpiredNotice(t *testing.T) {
+	store := session.NewStore()
+	t.Cleanup(store.Close)
+	srv := httptest.NewServer(newWithLimiter(store, defaultCfg(), "test",
+		newIPLimiter(false, sessionRateLimitMax, rateLimitWindow),
+		newIPLimiter(false, wsRateLimitMax, wsRateLimitWindow),
+	))
+	defer srv.Close()
+
+	code := createSession(t, srv.URL)
+	wsBase := "ws" + strings.TrimPrefix(srv.URL, "http")
+	ctx := context.Background()
+
+	conn, _, err := websocket.Dial(ctx, wsBase+"/ws/"+code+"?role=receiver", nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = conn.CloseNow() }()
+
+	// Directly evict the still-unpaired session, as the reaper would on its
+	// next tick, instead of waiting on the real TTL/ticker.
+	store.Reap(time.Now().Add(6 * time.Minute))
+
+	var m signalMessage
+	if err := wsjson.Read(ctx, conn, &m); err != nil {
+		t.Fatalf("read expired notice: %v", err)
+	}
+	if m.Type != "expired" {
+		t.Fatalf("expected expired, got %q", m.Type)
+	}
+}
+
 func TestWSUnknownCode(t *testing.T) {
 	srv := newTestServer(t, defaultCfg())
 	defer srv.Close()
@@ -406,6 +448,32 @@ func TestRateLimitSessionHandler(t *testing.T) {
 	mustDecode(t, resp, &body)
 	if body["error"] != "rate limit exceeded" {
 		t.Fatalf("unexpected body: %v", body)
+	}
+}
+
+func TestRateLimitWSHandler(t *testing.T) {
+	fc := &fakeClock{t: time.Now()}
+	l := &ipLimiter{windows: make(map[string][]time.Time), clock: fc, trustProxy: false, max: wsRateLimitMax, window: wsRateLimitWindow}
+	srv := newTestServerWithWSLimiter(t, defaultCfg(), l)
+	defer srv.Close()
+
+	wsBase := "ws" + strings.TrimPrefix(srv.URL, "http")
+	code := createSession(t, srv.URL)
+
+	for i := range wsRateLimitMax {
+		conn, _, err := websocket.Dial(context.Background(), wsBase+"/ws/"+code+"?role=receiver", nil)
+		if err != nil {
+			t.Fatalf("dial %d: %v", i+1, err)
+		}
+		_ = conn.CloseNow()
+	}
+
+	_, resp, err := websocket.Dial(context.Background(), wsBase+"/ws/"+code+"?role=receiver", nil)
+	if err == nil {
+		t.Fatal("expected dial to fail once rate limit is exceeded")
+	}
+	if resp == nil || resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %v", resp)
 	}
 }
 
