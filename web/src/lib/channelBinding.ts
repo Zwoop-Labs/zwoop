@@ -46,3 +46,24 @@ export function verifyFingerprintMac(macKey: Uint8Array, sdp: string, mac: Uint8
     return false;
   }
 }
+
+// ICE candidates aren't covered by the fingerprint MAC above, so a relay
+// could forge/drop them to steer peers onto a worse path. Same HMAC scheme,
+// with a distinct input prefix for domain separation from the fingerprint MAC.
+function candidateMacInput(candidate: RTCIceCandidateInit): Uint8Array {
+  const canonical = `candidate|${candidate.candidate ?? ""}|${candidate.sdpMid ?? ""}|${candidate.sdpMLineIndex ?? ""}|${candidate.usernameFragment ?? ""}`;
+  return new TextEncoder().encode(canonical);
+}
+
+export function computeCandidateMac(macKey: Uint8Array, candidate: RTCIceCandidateInit): Uint8Array {
+  return hmac(sha256, macKey, candidateMacInput(candidate));
+}
+
+/** Never throws: a garbled MAC is just "not verified". */
+export function verifyCandidateMac(macKey: Uint8Array, candidate: RTCIceCandidateInit, mac: Uint8Array): boolean {
+  try {
+    return equalBytes(computeCandidateMac(macKey, candidate), mac);
+  } catch {
+    return false;
+  }
+}

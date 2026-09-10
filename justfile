@@ -33,7 +33,7 @@ e2e: build-all
     #!/usr/bin/env bash
     set -euo pipefail
     pkill -f "{{BINARY_PATH}}" 2>/dev/null || true
-    {{BINARY_PATH}} &
+    SESSION_RATE_LIMIT_MAX=20 {{BINARY_PATH}} &
     SERVER_PID=$!
     trap "kill $SERVER_PID 2>/dev/null" EXIT
     until curl -sf http://localhost:8080/api/ice-servers >/dev/null; do sleep 0.2; done

@@ -46,7 +46,7 @@ func newTestServerWithWSLimiter(t *testing.T, cfg *config.Config, wsLimiter *ipL
 }
 
 func defaultCfg() *config.Config {
-	return &config.Config{Port: "0"}
+	return &config.Config{Port: "0", SessionRateLimitMax: config.DefaultSessionRateLimitMax}
 }
 
 func mustDecode(t *testing.T, resp *http.Response, v any) {

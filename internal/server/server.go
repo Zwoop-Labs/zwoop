@@ -23,7 +23,7 @@ func cspMiddleware(next http.Handler) http.Handler {
 
 func New(store *session.Store, cfg *config.Config, version string) http.Handler {
 	return newWithLimiter(store, cfg, version,
-		newIPLimiter(cfg.TrustedProxy, sessionRateLimitMax, rateLimitWindow),
+		newIPLimiter(cfg.TrustedProxy, cfg.SessionRateLimitMax, rateLimitWindow),
 		newIPLimiter(cfg.TrustedProxy, wsRateLimitMax, wsRateLimitWindow),
 	)
 }

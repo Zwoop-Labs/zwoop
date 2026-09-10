@@ -269,6 +269,61 @@ await run('tampered SDP fingerprint MAC on the answer blocks the transfer', asyn
   }
 });
 
+// ── Test 6: a relay tampering with an ICE candidate's MAC is detected ─────────
+// Mirrors Test 4/5 but for the per-candidate MAC instead of the SDP fingerprint MAC.
+
+await run('tampered ICE candidate MAC blocks the transfer', async () => {
+  const ctx = await browser.newContext();
+  const receiver = await ctx.newPage();
+  receiver.on('pageerror', e => console.error('[receiver]', e.message));
+  await receiver.goto(BASE);
+  await receiver.waitForSelector('.code-digits', { timeout: 10000 });
+  const code = (await receiver.textContent('.code-digits')).trim();
+  await receiver.waitForSelector('.status:has-text("Scan")', { timeout: 10000 });
+
+  const sender = await ctx.newPage();
+  sender.on('pageerror', e => console.error('[sender]', e.message));
+
+  // Flip a hex nibble in every outgoing candidate frame's MAC before it
+  // leaves the browser, as an on-the-wire tamperer would.
+  await sender.addInitScript(() => {
+    const originalSend = WebSocket.prototype.send;
+    WebSocket.prototype.send = function (data) {
+      try {
+        const msg = JSON.parse(data);
+        if (msg.type === 'candidate' && msg.payload && typeof msg.payload.mac === 'string') {
+          const mac = msg.payload.mac;
+          msg.payload.mac = (mac[0] === '0' ? '1' : '0') + mac.slice(1);
+          data = JSON.stringify(msg);
+        }
+      } catch {
+        // not JSON, or not ours to touch — pass through untouched
+      }
+      return originalSend.call(this, data);
+    };
+  });
+
+  try {
+    await sender.goto(`${BASE}/join/${code}`);
+    await sender.waitForSelector('#file-input', { state: 'attached', timeout: 15000 });
+    await receiver.waitForSelector('.status:has-text("waiting for file")', { timeout: 10000 });
+
+    await sender.locator('#file-input').setInputFiles('/tmp/zwoop-test.txt', { force: true });
+
+    await receiver.waitForSelector('.status.error', { timeout: 10000 });
+    const receiverErr = (await receiver.textContent('.status.error')).trim();
+    if (!receiverErr.includes('Security check failed')) {
+      throw new Error(`Expected security error on receiver, got: ${receiverErr}`);
+    }
+
+    if ((await receiver.locator('.status.success').count()) > 0) {
+      throw new Error('Receiver reported a successful transfer despite the tampered candidate MAC');
+    }
+  } finally {
+    await ctx.close();
+  }
+});
+
 // ── Summary ───────────────────────────────────────────────────────────────────
 
 await browser.close();

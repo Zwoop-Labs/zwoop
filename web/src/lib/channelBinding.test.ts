@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { computeFingerprintMac, deriveFingerprintMacKey, extractFingerprints, verifyFingerprintMac } from "./channelBinding";
+import {
+  computeCandidateMac,
+  computeFingerprintMac,
+  deriveFingerprintMacKey,
+  extractFingerprints,
+  verifyCandidateMac,
+  verifyFingerprintMac,
+} from "./channelBinding";
 
 // A trimmed but structurally real Chrome-style SDP offer (CRLF line endings,
 // as SDP actually uses on the wire, and a fingerprint line per m= section).
@@ -56,5 +63,45 @@ describe("computeFingerprintMac / verifyFingerprintMac", () => {
   it("verify never throws, even on garbage SDP", () => {
     const key = deriveFingerprintMacKey(new Uint8Array(16).fill(7));
     expect(verifyFingerprintMac(key, "not an sdp at all", new Uint8Array(32))).toBe(false);
+  });
+});
+
+describe("computeCandidateMac / verifyCandidateMac", () => {
+  const candidate = {
+    candidate: "candidate:842163049 1 udp 1677729535 203.0.113.5 54321 typ srflx raddr 0.0.0.0 rport 0",
+    sdpMid: "0",
+    sdpMLineIndex: 0,
+    usernameFragment: "abcd",
+  };
+
+  it("verifies against its own output", () => {
+    const key = deriveFingerprintMacKey(new Uint8Array(16).fill(7));
+    const mac = computeCandidateMac(key, candidate);
+    expect(verifyCandidateMac(key, candidate, mac)).toBe(true);
+  });
+
+  it("rejects a tampered candidate (simulated relay rewrite to a different host/port)", () => {
+    const key = deriveFingerprintMacKey(new Uint8Array(16).fill(7));
+    const mac = computeCandidateMac(key, candidate);
+    const tampered = { ...candidate, candidate: candidate.candidate.replace("203.0.113.5", "198.51.100.9") };
+    expect(verifyCandidateMac(key, tampered, mac)).toBe(false);
+  });
+
+  it("rejects when verified with the wrong key", () => {
+    const keyA = deriveFingerprintMacKey(new Uint8Array(16).fill(1));
+    const keyB = deriveFingerprintMacKey(new Uint8Array(16).fill(2));
+    const mac = computeCandidateMac(keyA, candidate);
+    expect(verifyCandidateMac(keyB, candidate, mac)).toBe(false);
+  });
+
+  it("a fingerprint MAC does not verify as a candidate MAC (domain separation)", () => {
+    const key = deriveFingerprintMacKey(new Uint8Array(16).fill(7));
+    const fingerprintMac = computeFingerprintMac(key, SDP);
+    expect(verifyCandidateMac(key, candidate, fingerprintMac)).toBe(false);
+  });
+
+  it("verify never throws, even with a garbage MAC", () => {
+    const key = deriveFingerprintMacKey(new Uint8Array(16).fill(7));
+    expect(verifyCandidateMac(key, candidate, new Uint8Array(32))).toBe(false);
   });
 });

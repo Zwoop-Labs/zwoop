@@ -7,10 +7,12 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Zwoop-Labs/zwoop/internal/config"
 )
 
 const (
-	sessionRateLimitMax = 5
+	sessionRateLimitMax = config.DefaultSessionRateLimitMax
 	rateLimitWindow     = 60 * time.Second
 	// Higher than sessionRateLimitMax to allow for reconnects and NAT sharing.
 	wsRateLimitMax    = 20

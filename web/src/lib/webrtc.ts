@@ -1,5 +1,5 @@
 import { bytesToHex, hexToBytes } from "@noble/curves/utils.js";
-import { computeFingerprintMac, verifyFingerprintMac } from "./channelBinding";
+import { computeCandidateMac, computeFingerprintMac, verifyCandidateMac, verifyFingerprintMac } from "./channelBinding";
 import { SECURITY_ERROR } from "./pairing";
 import type { SignalingClient } from "./signaling";
 import { formatBytes } from "./format";
@@ -64,6 +64,24 @@ function verifySignedSdp(macKey: Uint8Array, signed: SignedSdp): boolean {
   }
 }
 
+// Same MAC treatment for ICE candidates — see the comment in channelBinding.ts.
+interface SignedCandidate {
+  candidate: RTCIceCandidateInit;
+  mac: string; // hex
+}
+
+function signCandidate(macKey: Uint8Array, candidate: RTCIceCandidateInit): SignedCandidate {
+  return { candidate, mac: bytesToHex(computeCandidateMac(macKey, candidate)) };
+}
+
+function verifySignedCandidate(macKey: Uint8Array, signed: SignedCandidate): boolean {
+  try {
+    return verifyCandidateMac(macKey, signed.candidate, hexToBytes(signed.mac));
+  } catch {
+    return false;
+  }
+}
+
 // ─── Receiver (answerer) ─────────────────────────────────────────────────────
 
 export interface ReceivedFile {
@@ -106,7 +124,7 @@ export function createReceiver(
   pc.addEventListener("icecandidate", ({ candidate }) => {
     // Some browsers use an empty candidate string, not null, for end-of-candidates.
     if (candidate && candidate.candidate) {
-      signal.send({ type: "candidate", payload: candidate });
+      signal.send({ type: "candidate", payload: signCandidate(macKey, candidate.toJSON()) });
     }
   });
 
@@ -218,7 +236,14 @@ export function createReceiver(
         await pc.setLocalDescription(answer);
         signal.send({ type: "answer", payload: signSdp(macKey, answer) });
       } else if (msg.type === "candidate") {
-        await pc.addIceCandidate(new RTCIceCandidate(msg.payload as RTCIceCandidateInit));
+        const signed = msg.payload as SignedCandidate;
+        if (!verifySignedCandidate(macKey, signed)) {
+          onError?.(SECURITY_ERROR);
+          offSignal();
+          pc.close();
+          return;
+        }
+        await pc.addIceCandidate(new RTCIceCandidate(signed.candidate));
       }
     } catch (err) {
       onError?.(`WebRTC error: ${err instanceof Error ? err.message : String(err)}`);
@@ -269,7 +294,7 @@ export async function createSenderChannel(
   pc.addEventListener("icecandidate", ({ candidate }) => {
     // Some browsers use an empty candidate string, not null, for end-of-candidates.
     if (candidate && candidate.candidate) {
-      signal.send({ type: "candidate", payload: candidate });
+      signal.send({ type: "candidate", payload: signCandidate(macKey, candidate.toJSON()) });
     }
   });
 
@@ -288,7 +313,12 @@ export async function createSenderChannel(
       }
       await pc.setRemoteDescription(new RTCSessionDescription(signed.sdp));
     } else if (msg.type === "candidate") {
-      await pc.addIceCandidate(new RTCIceCandidate(msg.payload as RTCIceCandidateInit));
+      const signed = msg.payload as SignedCandidate;
+      if (!verifySignedCandidate(macKey, signed)) {
+        fail(SECURITY_ERROR);
+        return;
+      }
+      await pc.addIceCandidate(new RTCIceCandidate(signed.candidate));
     }
   });
 
