@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -17,6 +18,10 @@ import (
 var version = "dev"
 
 func run(ctx context.Context, cfg *config.Config) error {
+	if cfg.Environment == "production" && cfg.AllowedOrigin == "" {
+		return fmt.Errorf("ENVIRONMENT=production requires ALLOWED_ORIGIN to be set")
+	}
+
 	store := session.NewStore()
 	defer store.Close()
 

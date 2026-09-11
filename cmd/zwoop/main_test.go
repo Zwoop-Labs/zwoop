@@ -42,6 +42,46 @@ func TestRunGracefulShutdown(t *testing.T) {
 	}
 }
 
+func TestRunProductionRequiresAllowedOrigin(t *testing.T) {
+	cfg := &config.Config{Port: "0", Environment: "production"}
+
+	err := run(context.Background(), cfg)
+	if err == nil {
+		t.Fatal("expected error when ENVIRONMENT=production without ALLOWED_ORIGIN, got nil")
+	}
+}
+
+func TestRunProductionWithAllowedOriginStarts(t *testing.T) {
+	cfg := &config.Config{Port: "18081", Environment: "production", AllowedOrigin: "https://example.com"}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- run(ctx, cfg)
+	}()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		resp, err := http.Get("http://localhost:18081/healthz")
+		if err == nil {
+			resp.Body.Close()
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	cancel()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("run() returned error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("run() did not return after context cancellation")
+	}
+}
+
 func TestRunBadPort(t *testing.T) {
 	cfg := &config.Config{Port: "99999"} // out-of-range port — bind will fail on all platforms
 
