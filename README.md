@@ -28,6 +28,9 @@ Optional environment variables:
 | `PORT` | Port to listen on (default: `8080`) |
 | `TRUST_PROXY_HEADERS` | Trust `X-Real-IP` / `X-Forwarded-For` (default: `false`) |
 | `ALLOWED_ORIGIN` | WebSocket origin allowlist, e.g. `https://zwoop.example.com` |
+| `TURN_URL` | TURN relay URL, e.g. `turn:turn.example.com:3478`. Unset by default, so peers behind symmetric NAT/CGNAT can't connect. Relaying costs bandwidth on your TURN server, so this is opt-in. |
+| `TURN_USERNAME` | TURN credential username (only used if `TURN_URL` is set) |
+| `TURN_CREDENTIAL` | TURN credential password (only used if `TURN_URL` is set) |
 
 ## Development
 

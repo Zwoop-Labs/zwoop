@@ -15,6 +15,9 @@ type Config struct {
 	AllowedOrigin       string // ALLOWED_ORIGIN — WebSocket origin allowlist (e.g. https://zwoop.example.com)
 	Environment         string // ENVIRONMENT — e.g. production, development
 	SessionRateLimitMax int    // SESSION_RATE_LIMIT_MAX — sessions/min per IP
+	TurnURL             string // TURN_URL — e.g. turn:turn.example.com:3478
+	TurnUsername        string // TURN_USERNAME
+	TurnCredential      string // TURN_CREDENTIAL
 }
 
 func Load() *Config {
@@ -24,6 +27,9 @@ func Load() *Config {
 		AllowedOrigin:       os.Getenv("ALLOWED_ORIGIN"),
 		Environment:         getEnv("ENVIRONMENT", "development"),
 		SessionRateLimitMax: getEnvInt("SESSION_RATE_LIMIT_MAX", DefaultSessionRateLimitMax),
+		TurnURL:             os.Getenv("TURN_URL"),
+		TurnUsername:        os.Getenv("TURN_USERNAME"),
+		TurnCredential:      os.Getenv("TURN_CREDENTIAL"),
 	}
 }
 

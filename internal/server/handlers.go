@@ -172,10 +172,10 @@ func wsHandler(store *session.Store, cfg *config.Config) http.HandlerFunc {
 }
 
 type iceServer struct {
-	URLs []string `json:"urls"`
+	URLs       []string `json:"urls"`
+	Username   string   `json:"username,omitempty"`
+	Credential string   `json:"credential,omitempty"`
 }
-
-var iceServersResponse = mustMarshal([]iceServer{{URLs: []string{"stun:stun.l.google.com:19302"}}})
 
 func mustMarshal(v any) []byte {
 	b, err := json.Marshal(v)
@@ -185,10 +185,20 @@ func mustMarshal(v any) []byte {
 	return b
 }
 
-func iceServersHandler(_ *config.Config) http.HandlerFunc {
+func iceServersHandler(cfg *config.Config) http.HandlerFunc {
+	servers := []iceServer{{URLs: []string{"stun:stun.l.google.com:19302"}}}
+	if cfg.TurnURL != "" {
+		servers = append(servers, iceServer{
+			URLs:       []string{cfg.TurnURL},
+			Username:   cfg.TurnUsername,
+			Credential: cfg.TurnCredential,
+		})
+	}
+	body := mustMarshal(servers)
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(iceServersResponse)
+		_, _ = w.Write(body)
 	}
 }
 

@@ -129,6 +129,31 @@ func TestIceServers(t *testing.T) {
 	}
 }
 
+func TestIceServersIncludesTurnWhenConfigured(t *testing.T) {
+	cfg := defaultCfg()
+	cfg.TurnURL = "turn:turn.example.com:3478"
+	cfg.TurnUsername = "user"
+	cfg.TurnCredential = "secret"
+
+	srv := newTestServer(t, cfg)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/ice-servers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var servers []iceServer
+	mustDecode(t, resp, &servers)
+
+	if len(servers) != 2 {
+		t.Fatalf("expected 2 ICE servers, got %d", len(servers))
+	}
+	turn := servers[1]
+	if turn.URLs[0] != cfg.TurnURL || turn.Username != cfg.TurnUsername || turn.Credential != cfg.TurnCredential {
+		t.Fatalf("unexpected TURN server entry: %+v", turn)
+	}
+}
+
 // ── WebSocket relay ───────────────────────────────────────────────────────────
 
 func createSession(t *testing.T, srvURL string) string {
