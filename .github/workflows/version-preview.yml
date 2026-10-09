@@ -36,7 +36,7 @@ jobs:
           echo "next=$NEXT" >> "$GITHUB_OUTPUT"
 
       - name: Post version preview comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const current = '${{ steps.version.outputs.current }}';
