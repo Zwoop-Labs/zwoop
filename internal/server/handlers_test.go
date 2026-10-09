@@ -304,12 +304,23 @@ func TestWSExpiredNotice(t *testing.T) {
 	}
 	defer func() { _ = conn.CloseNow() }()
 
+	// Dial returns before the handler joins; reaping in that gap notifies no one.
+	deadline := time.Now().Add(5 * time.Second)
+	for !store.Connected(code, "receiver") {
+		if time.Now().After(deadline) {
+			t.Fatal("receiver never joined the session")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
 	// Directly evict the still-unpaired session, as the reaper would on its
 	// next tick, instead of waiting on the real TTL/ticker.
 	store.Reap(time.Now().Add(6 * time.Minute))
 
+	readCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	var m signalMessage
-	if err := wsjson.Read(ctx, conn, &m); err != nil {
+	if err := wsjson.Read(readCtx, conn, &m); err != nil {
 		t.Fatalf("read expired notice: %v", err)
 	}
 	if m.Type != "expired" {

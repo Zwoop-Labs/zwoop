@@ -259,3 +259,22 @@ func TestDelete(t *testing.T) {
 		t.Fatal("Join() should fail after Delete()")
 	}
 }
+
+func TestConnected(t *testing.T) {
+	s := NewStore()
+	defer s.Close()
+	code, _ := s.Create()
+
+	if s.Connected(code, "receiver") || s.Connected("nope", "receiver") || s.Connected(code, "bogus") {
+		t.Fatal("expected not connected before join, for unknown code and for unknown role")
+	}
+	if _, _, ok := s.Join(code, "receiver"); !ok {
+		t.Fatal("join failed")
+	}
+	if !s.Connected(code, "receiver") {
+		t.Fatal("receiver should be connected after join")
+	}
+	if s.Connected(code, "sender") {
+		t.Fatal("sender should not be connected")
+	}
+}

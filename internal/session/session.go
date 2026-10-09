@@ -122,6 +122,25 @@ func (s *Store) Join(code, role string) (*Session, chan []byte, bool) {
 	return sess, ch, true
 }
 
+// Connected reports whether the role has joined the session.
+func (s *Store) Connected(code, role string) bool {
+	s.mu.Lock()
+	sess, ok := s.sessions[code]
+	s.mu.Unlock()
+	if !ok {
+		return false
+	}
+	sess.mu.RLock()
+	defer sess.mu.RUnlock()
+	switch role {
+	case "receiver":
+		return sess.receiver != nil
+	case "sender":
+		return sess.sender != nil
+	}
+	return false
+}
+
 // Paired reports whether both peers have connected.
 func (sess *Session) Paired() bool {
 	sess.mu.RLock()
