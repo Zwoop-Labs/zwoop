@@ -78,6 +78,35 @@ func TestHealthz(t *testing.T) {
 	}
 }
 
+// ── security headers ─────────────────────────────────────────────────────────
+
+func TestSecurityHeaders(t *testing.T) {
+	srv := newTestServer(t, defaultCfg())
+	defer srv.Close()
+
+	for _, path := range []string{"/", "/healthz", "/api/version"} {
+		resp, err := http.Get(srv.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+
+		want := map[string]string{
+			"Strict-Transport-Security": "max-age=31536000",
+			"X-Content-Type-Options":    "nosniff",
+			"Referrer-Policy":           "no-referrer",
+		}
+		for k, v := range want {
+			if got := resp.Header.Get(k); got != v {
+				t.Errorf("%s %s: got %q, want %q", path, k, got, v)
+			}
+		}
+		if csp := resp.Header.Get("Content-Security-Policy"); !strings.Contains(csp, "frame-ancestors 'none'") {
+			t.Errorf("%s CSP missing frame-ancestors 'none': %q", path, csp)
+		}
+	}
+}
+
 // ── POST /api/session ─────────────────────────────────────────────────────────
 
 func TestSessionHandler(t *testing.T) {
