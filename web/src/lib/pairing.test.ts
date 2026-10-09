@@ -3,6 +3,19 @@ import { describe, expect, it, vi } from "vitest";
 import { SECURITY_ERROR, authenticate } from "./pairing";
 import type { MessageHandler, SignalMessage, SignalTransport } from "./signaling";
 
+// Lets a test hold deriveW open so the peer can leave mid-derivation.
+const deriveWDelayMs = vi.hoisted(() => ({ value: 0 }));
+vi.mock("./spake2", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./spake2")>();
+  return {
+    ...actual,
+    deriveW: async (...args: Parameters<typeof actual.deriveW>) => {
+      if (deriveWDelayMs.value > 0) await new Promise((r) => setTimeout(r, deriveWDelayMs.value));
+      return actual.deriveW(...args);
+    },
+  };
+});
+
 // Minimal stand-in for SignalingClient exposing only what pairing.ts uses
 // (on/send/onClose), with two instances wired together like a relay so
 // authenticate() can be exercised on both "sides" of a handshake without a
@@ -102,6 +115,28 @@ describe("pairing.authenticate", () => {
     a.triggerClose();
 
     await expect(p).rejects.toThrow("Connection closed before pairing completed.");
+  });
+
+  it("does not leave an unhandled rejection when the peer leaves while deriving w", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    deriveWDelayMs.value = 50;
+    try {
+      const a = new FakeSignal();
+      const b = new FakeSignal();
+      link(a, b);
+
+      const p = authenticate(a, "abcd1234", "receiver");
+      a.receive({ type: "peer-left" });
+
+      await expect(p).rejects.toThrow("Peer disconnected before pairing completed.");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(unhandled).toEqual([]);
+    } finally {
+      deriveWDelayMs.value = 0;
+      process.off("unhandledRejection", onUnhandled);
+    }
   });
 
   it("rejects promptly when the peer disconnects without closing our own socket", async () => {
