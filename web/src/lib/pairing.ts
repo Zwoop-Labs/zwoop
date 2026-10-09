@@ -86,6 +86,8 @@ export async function authenticate(signal: SignalTransport, code: string, role: 
   // messages) while we're still busy deriving w — deriveW's scrypt call is
   // slow enough for that race to be real, not just theoretical.
   const peerMsgPromise = waitForMessage(signal, "spake-msg");
+  // Avoids an unhandled rejection if this rejects while deriveW is running.
+  peerMsgPromise.catch(() => {});
 
   const w = await deriveW(new TextEncoder().encode(code), SALT);
   const session = new Spake2Session(spakeRole, w);
