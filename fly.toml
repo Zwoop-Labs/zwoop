@@ -14,6 +14,13 @@ primary_region = 'ams'
   min_machines_running = 0
   processes = ['app']
 
+  [[http_service.checks]]
+    grace_period = '5s'
+    interval = '15s'
+    timeout = '2s'
+    method = 'GET'
+    path = '/healthz'
+
 [[vm]]
   cpu_kind = 'shared'
   memory = '256mb'
