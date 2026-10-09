@@ -23,7 +23,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: 'stable'
+          go-version-file: go.mod
+          check-latest: true
 
       - name: Install just
         uses: extractions/setup-just@v2
@@ -38,7 +39,19 @@ jobs:
         run: go build -v ./...
 
       - name: Format
-        run: just fmt
+        run: just fmt-check
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v8
 
       - name: Test
-        run: just test
+        run: just test-race
+
+      - name: Vulnerability check
+        run: just vuln
+
+      - name: Web tests
+        run: just web-test
+
+      - name: Web audit (production deps)
+        run: just web-audit

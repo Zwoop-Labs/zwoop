@@ -55,6 +55,26 @@ test-verbose:
 fmt:
     @go fmt ./...
 
+# Fails if any Go file is unformatted (CI); `fmt` rewrites instead.
+fmt-check:
+    @test -z "$(gofmt -l .)" || (gofmt -l . && echo "run: just fmt" && exit 1)
+
+test-race:
+    @go test -race ./...
+
+vuln:
+    @go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+web-test:
+    @cd web && npm test
+
+# Production deps only; dev-only findings in build tooling are left to dependabot.
+web-audit:
+    @cd web && npm audit --omit=dev --audit-level=high
+
+# Everything CI runs besides the golangci-lint action (use `just lint` locally).
+ci: fmt-check test-race vuln web-test web-audit
+
 lint:
     @golangci-lint run ./... 2>/dev/null || echo "golangci-lint not installed. Install with: brew install golangci-lint"
 

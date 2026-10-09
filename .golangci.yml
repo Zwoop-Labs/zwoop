@@ -6,10 +6,9 @@ linters:
 formatters:
   enable:
     - gofmt
-
-formatters-settings:
-  gofmt:
-    simplify: true
+  settings:
+    gofmt:
+      simplify: true
 
 issues:
   max-issues-per-linter: 0

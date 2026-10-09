@@ -15,7 +15,7 @@ func TestCreate(t *testing.T) {
 		t.Fatalf("expected 8-char code, got %q (len %d)", code, len(code))
 	}
 	for _, c := range code {
-		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') {
 			t.Fatalf("code contains character outside [a-z0-9]: %q", code)
 		}
 	}
@@ -190,7 +190,7 @@ func TestClearAndGetOtherSenderRole(t *testing.T) {
 func TestClose(t *testing.T) {
 	s := NewStore()
 	// Populate a session so the reaper has something to inspect on its next tick.
-	s.Create()
+	_, _ = s.Create()
 	// Close must not block or panic; it signals the reaper goroutine to exit.
 	s.Close()
 }
