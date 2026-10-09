@@ -128,7 +128,7 @@ func TestSessionHandler(t *testing.T) {
 		t.Fatalf("expected 8-char code, got %q", code)
 	}
 	for _, c := range code {
-		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') {
 			t.Fatalf("code contains character outside [a-z0-9]: %q", code)
 		}
 	}
@@ -329,7 +329,7 @@ func TestWSUnknownCode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected dial error: %v", err)
 	}
-	defer conn.CloseNow()
+	defer func() { _ = conn.CloseNow() }()
 	_, _, err = conn.Read(context.Background())
 	if err == nil {
 		t.Fatal("expected connection to be closed by server for unknown code")

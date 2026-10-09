@@ -24,7 +24,7 @@ func TestRunGracefulShutdown(t *testing.T) {
 	for time.Now().Before(deadline) {
 		resp, err := http.Get("http://localhost:18080/healthz")
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -64,7 +64,7 @@ func TestRunProductionWithAllowedOriginStarts(t *testing.T) {
 	for time.Now().Before(deadline) {
 		resp, err := http.Get("http://localhost:18081/healthz")
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
