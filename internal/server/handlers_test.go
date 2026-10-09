@@ -312,12 +312,17 @@ func TestWSUnknownCode(t *testing.T) {
 func TestExtractIP(t *testing.T) {
 	cases := []struct {
 		name       string
+		flyIP      string
 		realIP     string
 		xff        string
 		remoteAddr string
 		trust      bool
 		want       string
 	}{
+		// Fly-Client-IP is set by Fly's edge and not client-controllable, so it wins over spoofable headers.
+		{name: "Fly-Client-IP trusted", flyIP: " 7.7.7.7 ", trust: true, want: "7.7.7.7"},
+		{name: "Fly-Client-IP beats XFF and X-Real-IP", flyIP: "7.7.7.7", realIP: "1.2.3.4", xff: "5.6.7.8", trust: true, want: "7.7.7.7"},
+		{name: "Fly-Client-IP untrusted", flyIP: "7.7.7.7", remoteAddr: "10.0.0.1:1234", trust: false, want: "10.0.0.1"},
 		{name: "X-Real-IP trusted", realIP: "  1.2.3.4  ", trust: true, want: "1.2.3.4"},
 		{name: "XFF single trusted", xff: " 5.6.7.8 ", trust: true, want: "5.6.7.8"},
 		{name: "XFF comma trusted", xff: "5.6.7.8, 9.10.11.12", trust: true, want: "5.6.7.8"},
@@ -329,6 +334,9 @@ func TestExtractIP(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r, _ := http.NewRequest(http.MethodGet, "/", nil)
+			if tc.flyIP != "" {
+				r.Header.Set("Fly-Client-IP", tc.flyIP)
+			}
 			if tc.realIP != "" {
 				r.Header.Set("X-Real-IP", tc.realIP)
 			}

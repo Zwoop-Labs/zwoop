@@ -101,6 +101,10 @@ func (l *ipLimiter) sweep(now, cutoff time.Time) {
 // when the server is exposed directly without a reverse proxy.
 func extractIP(r *http.Request, trustProxy bool) string {
 	if trustProxy {
+		// Fly's edge sets this and clients can't override it, unlike XFF.
+		if ip := r.Header.Get("Fly-Client-IP"); ip != "" {
+			return strings.TrimSpace(ip)
+		}
 		if ip := r.Header.Get("X-Real-IP"); ip != "" {
 			return strings.TrimSpace(ip)
 		}
