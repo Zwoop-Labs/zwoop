@@ -27,7 +27,7 @@ jobs:
           check-latest: true
 
       - name: Install just
-        uses: extractions/setup-just@v2
+        uses: extractions/setup-just@v4
 
       - name: Build frontend
         run: cd web && npm ci && npm run build
