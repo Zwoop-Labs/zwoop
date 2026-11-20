@@ -1,41 +1,78 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "v*"
-  workflow_dispatch:
+  workflow_run: # after CI passed on main
+    workflows: ["CI"]
+    types: [completed]
+    branches: ["main"]
+  workflow_dispatch: # publish the latest tag again, after a failed release
 
 permissions:
   contents: write
   packages: write
 
+concurrency: release
+
 jobs:
   release:
+    if: >-
+      github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }} # the commit CI tested
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Install svu
+        run: GOTOOLCHAIN=auto go install github.com/caarlos0/svu/v3@v3.4.4 # svu may need a newer Go than go.mod
+
+      - name: Tag the next version, if the commits call for one
+        id: tag
+        run: |
+          current=$(svu current)
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            if ! git rev-parse -q --verify "refs/tags/$current" > /dev/null; then
+              echo "No tag to release yet"
+              exit 1
+            fi
+            git checkout -q "$current"
+            echo "tag=$current" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          next=$(svu next --v0)
+          if [ "$next" = "$current" ]; then
+            echo "No release needed (current: $current)"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$next"
+          git push origin "$next"
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        if: steps.tag.outputs.tag != ''
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: web/package-lock.json
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          check-latest: true
-
       - name: Set up Docker Buildx
+        if: steps.tag.outputs.tag != ''
         uses: docker/setup-buildx-action@v4
 
       - name: Log in to GitHub Container Registry
+        if: steps.tag.outputs.tag != ''
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
@@ -43,19 +80,22 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v6
+        if: steps.tag.outputs.tag != ''
+        uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
-          version: latest
+          version: "~> v2"
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
 
       - name: Vulnerability scan of release binary
+        if: steps.tag.outputs.tag != ''
         run: go run golang.org/x/vuln/cmd/govulncheck@latest -mode=binary dist/zwoop_linux_amd64_v1/zwoop
 
       - name: Get released image digest
+        if: steps.tag.outputs.tag != ''
         id: image
         run: |
           TAG=$(jq -r '.version' dist/metadata.json)
@@ -64,9 +104,11 @@ jobs:
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
       - name: Set up flyctl
+        if: steps.tag.outputs.tag != ''
         uses: superfly/flyctl-actions/setup-flyctl@master
 
       - name: Deploy to Fly.io
+        if: steps.tag.outputs.tag != ''
         run: flyctl deploy --image "ghcr.io/zwoop-labs/zwoop:${{ steps.image.outputs.tag }}@${{ steps.image.outputs.digest }}"
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

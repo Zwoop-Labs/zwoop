@@ -85,12 +85,12 @@ clean:
 
 version:
     @echo "Current: $(svu current)"
-    @echo "Next:    $(svu next)"
+    @echo "Next:    $(svu next --v0)"
 
 tag:
     #!/usr/bin/env bash
     set -euo pipefail
-    NEXT=$(svu next)
+    NEXT=$(svu next --v0)
     CURRENT=$(svu current)
     if [ "$NEXT" = "$CURRENT" ]; then
         echo "No commits requiring a version bump since $CURRENT"
@@ -98,16 +98,3 @@ tag:
     fi
     git tag "$NEXT"
     echo "Tagged $NEXT"
-
-release:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    NEXT=$(svu next)
-    CURRENT=$(svu current)
-    if [ "$NEXT" = "$CURRENT" ]; then
-        echo "No commits requiring a version bump since $CURRENT"
-        exit 0
-    fi
-    git tag "$NEXT"
-    git push origin "$NEXT"
-    echo "Released $NEXT"
