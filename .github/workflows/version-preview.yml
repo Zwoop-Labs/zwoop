@@ -3,70 +3,104 @@ name: Version Preview
 on:
   pull_request:
     branches: ["main"]
+    types: [opened, synchronize, reopened, edited] # edited: the PR title drives squash merges
+  workflow_run: # main moved and may have a new tag, so refresh every open PR
+    workflows: ["Release"]
+    types: [completed]
+    branches: ["main"]
 
 permissions:
+  contents: read
   pull-requests: write
+
+concurrency:
+  group: version-preview-${{ github.event.pull_request.number || 'all' }}
+  cancel-in-progress: true
 
 jobs:
   preview:
-    # Dependabot runs can't read secrets.GH_PAT.
-    if: github.actor != 'dependabot[bot]'
+    # Dependabot PRs get a read-only token; the workflow_run refresh still covers them.
+    if: github.event_name != 'pull_request' || github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          token: ${{ secrets.GH_PAT }}
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: 'stable'
 
       - name: Install svu
-        run: go install github.com/caarlos0/svu/v3@latest
+        run: go install github.com/caarlos0/svu/v3@v3.4.4
 
-      - name: Compute version preview
-        id: version
+      - name: Update version preview comments
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
         run: |
-          CURRENT=$(svu current)
-          NEXT=$(svu next)
-          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
-          echo "next=$NEXT" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch -q --tags origin main
 
-      - name: Post version preview comment
-        uses: actions/github-script@v9
-        with:
-          script: |
-            const current = '${{ steps.version.outputs.current }}';
-            const next = '${{ steps.version.outputs.next }}';
-            const bump = current === next ? 'no bump' : `${current} → **${next}**`;
-            const body = `### Version preview\n\nMerging this PR will produce: ${bump}`;
+          read -r allow_merge allow_squash squash_title < <(gh api "repos/$GITHUB_REPOSITORY" \
+            --jq '"\((.allow_merge_commit // true) or (.allow_rebase_merge // true)) \(.allow_squash_merge // true) \(.squash_merge_commit_title // "COMMIT_OR_PR_TITLE")"')
 
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
+          bump() { # current next
+            if [ "$1" = "$2" ]; then echo "no bump"; else echo "$1 → **$2**"; fi
+          }
 
-            const existing = comments.find(c =>
-              c.user.login === 'github-actions[bot]' &&
-              c.body.startsWith('### Version preview')
-            );
+          prs=${PR:-$(gh pr list --base main --state open --json number --jq '.[].number')}
+          for pr in $prs; do
+            git fetch -q origin "pull/$pr/head"
+            head=$(git rev-parse FETCH_HEAD)
+            git checkout -q --detach origin/main
+            current=$(svu current)
 
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body,
-              });
-            }
+            # Merge commit (or rebase): every commit in the PR counts.
+            merge_line=""
+            if [ "$allow_merge" = true ]; then
+              if git merge -q --no-ff --no-edit "$head" > /dev/null 2>&1; then
+                merge_line=$(bump "$current" "$(svu next --v0)")
+              else
+                git merge --abort
+                merge_line="unavailable (conflicts with main)"
+              fi
+              git checkout -q --detach origin/main
+            fi
+
+            # Squash: only the squash commit message counts, mirroring GitHub's default title.
+            squash_line=""
+            if [ "$allow_squash" = true ]; then
+              read -r commits title < <(gh pr view "$pr" --json commits,title --jq '"\(.commits | length) \(.title)"')
+              if [ "$squash_title" = COMMIT_OR_PR_TITLE ] && [ "$commits" = 1 ]; then
+                msg=$(git log -1 --format=%B "$head")
+              else
+                msg=$title
+              fi
+              git commit -q --allow-empty -m "$msg"
+              squash_line=$(bump "$current" "$(svu next --v0)")
+              git checkout -q --detach origin/main
+            fi
+
+            if [ -z "$squash_line" ] || [ "$squash_line" = "$merge_line" ]; then
+              result="Merging this PR will produce: ${merge_line:-$squash_line}"
+            elif [ -z "$merge_line" ]; then
+              result="Merging this PR will produce: $squash_line"
+            else
+              result=$(printf 'Merging this PR will produce:\n\n- Squash merge: %s\n- Merge commit: %s' "$squash_line" "$merge_line")
+            fi
+            body=$(printf '### Version preview\n\n%s' "$result")
+
+            id=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$pr/comments" \
+              --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("### Version preview"))) | .id' | head -n1)
+            if [ -n "$id" ]; then
+              gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -f body="$body" > /dev/null
+            else
+              gh api "repos/$GITHUB_REPOSITORY/issues/$pr/comments" -f body="$body" > /dev/null
+            fi
+            echo "#$pr: $result"
+          done
